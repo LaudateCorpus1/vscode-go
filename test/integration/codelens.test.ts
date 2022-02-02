@@ -5,7 +5,7 @@
 
 'use strict';
 
-import * as assert from 'assert';
+import assert from 'assert';
 import fs = require('fs-extra');
 import path = require('path');
 import sinon = require('sinon');
@@ -14,7 +14,7 @@ import { getGoConfig } from '../../src/config';
 import { updateGoVarsFromConfig } from '../../src/goInstallTools';
 import { GoRunTestCodeLensProvider } from '../../src/goRunTestCodelens';
 import { subTestAtCursor } from '../../src/goTest';
-import { getCurrentGoPath } from '../../src/util';
+import { getCurrentGoPath, getGoVersion } from '../../src/util';
 
 suite('Code lenses for testing and benchmarking', function () {
 	this.timeout(20000);
@@ -85,8 +85,17 @@ suite('Code lenses for testing and benchmarking', function () {
 	test('Subtests - does nothing for a dynamically defined subtest', async () => {
 		const editor = await vscode.window.showTextDocument(document);
 		editor.selection = new vscode.Selection(17, 4, 17, 4);
+		sinon.stub(vscode.window, 'showInputBox').onFirstCall().resolves(undefined);
 		const result = await subTestAtCursor(goConfig, []);
 		assert.equal(result, undefined);
+	});
+
+	test('Subtests - runs a test with curson on t.Run line and dynamic test name is passed in input box', async () => {
+		const editor = await vscode.window.showTextDocument(document);
+		editor.selection = new vscode.Selection(17, 4, 17, 4);
+		sinon.stub(vscode.window, 'showInputBox').onFirstCall().resolves('dynamic test name');
+		const result = await subTestAtCursor(goConfig, []);
+		assert.equal(result, false);
 	});
 
 	test('Subtests - does nothing when cursor outside of a test function', async () => {
@@ -134,7 +143,7 @@ suite('Code lenses for testing and benchmarking', function () {
 		const uri = vscode.Uri.file(path.join(fixturePath, 'codelens2_test.go'));
 		const benchmarkDocument = await vscode.workspace.openTextDocument(uri);
 		const codeLenses = await codeLensProvider.provideCodeLenses(benchmarkDocument, cancellationTokenSource.token);
-		assert.equal(codeLenses.length, 12, JSON.stringify(codeLenses, null, 2));
+		assert.equal(codeLenses.length, 18, JSON.stringify(codeLenses, null, 2));
 		const found = [] as string[];
 		for (let i = 0; i < codeLenses.length; i++) {
 			const lens = codeLenses[i];
@@ -144,6 +153,35 @@ suite('Code lenses for testing and benchmarking', function () {
 		}
 		found.sort();
 		// Results should match `go test -list`.
-		assert.deepStrictEqual(found, ['Test1Function', 'TestFunction', 'Test_foobar', 'TestΣυνάρτηση', 'Test함수']);
+		assert.deepStrictEqual(found, [
+			'Example',
+			'ExampleFunction',
+			'Test',
+			'Test1Function',
+			'TestFunction',
+			'Test_foobar',
+			'TestΣυνάρτηση',
+			'Test함수'
+		]);
+	});
+
+	test('Test codelenses include valid fuzz function names', async function () {
+		if ((await getGoVersion()).lt('1.18')) {
+			this.skip();
+		}
+		const uri = vscode.Uri.file(path.join(fixturePath, 'codelens_go118_test.go'));
+		const testDocument = await vscode.workspace.openTextDocument(uri);
+		const codeLenses = await codeLensProvider.provideCodeLenses(testDocument, cancellationTokenSource.token);
+		assert.equal(codeLenses.length, 8, JSON.stringify(codeLenses, null, 2));
+		const found = [] as string[];
+		for (let i = 0; i < codeLenses.length; i++) {
+			const lens = codeLenses[i];
+			if (lens.command.command === 'go.test.cursor') {
+				found.push(lens.command.arguments[0].functionName);
+			}
+		}
+		found.sort();
+		// Results should match `go test -list`.
+		assert.deepStrictEqual(found, ['Fuzz', 'FuzzFunc', 'TestGo118']);
 	});
 });

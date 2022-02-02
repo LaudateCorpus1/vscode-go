@@ -11,7 +11,6 @@ Available subcommands:
   help      - display this help message.
   test      - build and test locally. Some tests may fail if vscode is already in use.
   testlocal - build and test in a locally built container.
-  setup_env - setup environment for test. This installs tools under GOPATH/bin.
   ci        - build and test with headless vscode. Requires Xvfb.
 EOUSAGE
 }
@@ -81,7 +80,7 @@ prepare_nightly() {
 .displayName="Go Nightly" |
 .publisher="golang" |
 .description="Rich Go language support for Visual Studio Code (Nightly)" |
-.contributes.configuration.properties."go.useLanguageServer".default=true
+.contributes.configuration.properties."go.delveConfig".properties.hideSystemGoroutines.default=true
 ') > /tmp/package.json && mv /tmp/package.json package.json
 
   # Replace CHANGELOG.md with CHANGELOG.md + Release commit info.
@@ -90,36 +89,6 @@ prepare_nightly() {
   sed '/^# Go for Visual Studio Code$/d' README.md | cat build/nightly/README.md - > /tmp/README.md.new && mv /tmp/README.md.new README.md
   # Replace src/const.ts with build/nightly/const.ts.
   cp build/nightly/const.ts src/const.ts
-}
-
-# setup dependencies required for tests.
-install_dependencies() {
-	# TARGET is where `go get` will output the compiled binaries.
-	local GOPATHS=`go env GOPATH`
-	local TARGET="${GOBIN}"
-	if [[ -z "${GOBIN}" ]]; then TARGET="${GOPATHS%%:*}/bin" ; fi
-
-	GO111MODULE=on go install golang.org/x/tools/gopls@latest
-	GO111MODULE=on go install github.com/acroca/go-symbols@latest
-	GO111MODULE=on go install github.com/cweill/gotests/gotests@latest
-	GO111MODULE=on go install github.com/davidrjenni/reftools/cmd/fillstruct@latest
-	GO111MODULE=on go install github.com/haya14busa/goplay/cmd/goplay@latest
-
-	# We install two versions of gocode, one for module mode (gocode-gomod)
-	# and another for GOPATH mode (gocode).
-	GO111MODULE=on go install github.com/stamblerre/gocode@latest && mv "${TARGET}/gocode" "${TARGET}/gocode-gomod"
-	GO111MODULE=on go install github.com/mdempsky/gocode@latest
-
-	GO111MODULE=on go install github.com/ramya-rao-a/go-outline@latest
-	GO111MODULE=on go install github.com/rogpeppe/godef@latest
-	GO111MODULE=on go install github.com/sqs/goreturns@latest
-	GO111MODULE=on go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
-	GO111MODULE=on go install github.com/zmb3/gogetdoc@latest
-	GO111MODULE=on go install honnef.co/go/tools/cmd/staticcheck@latest
-	GO111MODULE=on go install golang.org/x/tools/cmd/gorename@latest
-
-	GO111MODULE=on go install github.com/go-delve/delve/cmd/dlv@master && cp "${TARGET}/dlv" "${TARGET}/dlv-dap"
-	GO111MODULE=on go install github.com/go-delve/delve/cmd/dlv@latest
 }
 
 main() {
@@ -143,9 +112,6 @@ main() {
       ;;
     "prepare_nightly")
       prepare_nightly
-      ;;
-    "setup_env")
-      install_dependencies
       ;;
     *)
       usage

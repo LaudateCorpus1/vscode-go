@@ -1,11 +1,14 @@
 /* eslint-disable no-process-exit */
 /* eslint-disable node/no-unpublished-import */
 import * as path from 'path';
-import { runTests } from 'vscode-test';
+import { runTests } from '@vscode/test-electron';
 
 async function main() {
 	// We are in test mode.
 	process.env['VSCODE_GO_IN_TEST'] = '1';
+	if (process.argv.length > 2) {
+		process.env['MOCHA_GREP'] = process.argv[2];
+	}
 
 	// The folder containing the Extension Manifest package.json
 	// Passed to `--extensionDevelopmentPath`

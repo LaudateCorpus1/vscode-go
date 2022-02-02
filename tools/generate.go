@@ -220,7 +220,7 @@ func main() {
 
 	b.Reset()
 	generateDebugConfigTable(b, pkgJSON)
-	rewriteDebugDoc(filepath.Join(dir, "docs", "dlv-dap.md"), b.Bytes())
+	rewriteDebugDoc(filepath.Join(dir, "docs", "debugging.md"), b.Bytes())
 
 	// Only update the latest tool versions if the flag is set.
 	if !*updateLatestToolVersionsFlag {
@@ -229,12 +229,6 @@ func main() {
 
 	// Clear so that we can rewrite src/goToolsInformation.ts.
 	b.Reset()
-
-	// Check for latest dlv-dap version.
-	dlvVersion, err := listModuleVersion("github.com/go-delve/delve@master")
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	// Check for the latest gopls version.
 	versions, err := listAllModuleVersions("golang.org/x/tools/gopls")
@@ -245,7 +239,8 @@ func main() {
 	latestPre := versions.Versions[latestIndex]
 	// We need to find the last version that was not a pre-release.
 	var latest string
-	for latest = versions.Versions[latestIndex]; latestIndex >= 0; latestIndex-- {
+	for ; latestIndex >= 0; latestIndex-- {
+		latest = versions.Versions[latestIndex]
 		if !strings.Contains(latest, "pre") {
 			break
 		}
@@ -269,7 +264,7 @@ func main() {
 	}
 
 	// TODO(suzmue): change input to json and avoid magic string printing.
-	toolsString := fmt.Sprintf(string(data), goplsVersion.Version, goplsVersion.Time[:len("YYYY-MM-DD")], goplsVersionPre.Version, goplsVersionPre.Time[:len("YYYY-MM-DD")], dlvVersion.Version, dlvVersion.Time[:len("YYYY-MM-DD")])
+	toolsString := fmt.Sprintf(string(data), goplsVersion.Version, goplsVersion.Time[:len("YYYY-MM-DD")], goplsVersionPre.Version, goplsVersionPre.Time[:len("YYYY-MM-DD")])
 
 	// Write tools section.
 	b.WriteString(toolsString)
@@ -346,8 +341,10 @@ func defaultDescriptionSnippet(p *Property) string {
 	switch p.Type {
 	case "object":
 		x, ok := p.Default.(map[string]interface{})
-		// do nothing if it is nil
-		if ok && len(x) > 0 {
+		if !ok {
+			panic(fmt.Sprintf("unexpected type of object: %v", *p))
+		} else if len(x) > 0 {
+			// do nothing if it is nil
 			writeMapObject(b, "", x)
 		}
 	case "string":
@@ -355,8 +352,18 @@ func defaultDescriptionSnippet(p *Property) string {
 	case "boolean", "number":
 		fmt.Fprintf(b, "%v", p.Default)
 	case "array":
-		if x, ok := p.Default.([]interface{}); ok && len(x) > 0 {
-			fmt.Fprintf(b, "%v", p.Default)
+		x, ok := p.Default.([]interface{})
+		if !ok {
+			panic(fmt.Sprintf("unexpected type for array: %v", *p))
+		} else if len(x) > 0 {
+			fmt.Fprintf(b, "[")
+			for i, v := range x {
+				if i > 0 {
+					fmt.Fprintf(b, ", ")
+				}
+				fmt.Fprintf(b, "%q", v)
+			}
+			fmt.Fprintf(b, "]")
 		}
 	default:
 		fmt.Fprintf(b, "%v", p.Default)
