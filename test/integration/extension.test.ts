@@ -15,8 +15,8 @@ import * as vscode from 'vscode';
 import { getGoConfig, getGoplsConfig } from '../../src/config';
 import { FilePatch, getEdits, getEditsFromUnifiedDiffStr } from '../../src/diffUtils';
 import { check } from '../../src/goCheck';
-import { GoDefinitionProvider } from '../../src/goDeclaration';
-import { GoHoverProvider } from '../../src/goExtraInfo';
+import { GoDefinitionProvider } from '../../src/language/legacy/goDeclaration';
+import { GoHoverProvider } from '../../src/language/legacy/goExtraInfo';
 import { runFillStruct } from '../../src/goFillStruct';
 import {
 	generateTestCurrentFile,
@@ -25,14 +25,18 @@ import {
 } from '../../src/goGenerateTests';
 import { getTextEditForAddImport, listPackages } from '../../src/goImport';
 import { updateGoVarsFromConfig } from '../../src/goInstallTools';
-import { buildLanguageServerConfig } from '../../src/goLanguageServer';
+import { buildLanguageServerConfig } from '../../src/language/goLanguageServer';
 import { goLint } from '../../src/goLint';
-import { documentSymbols, GoDocumentSymbolProvider, GoOutlineImportsOptions } from '../../src/goOutline';
+import {
+	documentSymbols,
+	GoDocumentSymbolProvider,
+	GoOutlineImportsOptions
+} from '../../src/language/legacy/goOutline';
 import { getAllPackages } from '../../src/goPackages';
 import { goPlay } from '../../src/goPlayground';
-import { GoSignatureHelpProvider } from '../../src/goSignature';
-import { GoCompletionItemProvider } from '../../src/goSuggest';
-import { getWorkspaceSymbols } from '../../src/goSymbol';
+import { GoSignatureHelpProvider } from '../../src/language/legacy/goSignature';
+import { GoCompletionItemProvider } from '../../src/language/legacy/goSuggest';
+import { getWorkspaceSymbols } from '../../src/language/legacy/goSymbol';
 import { testCurrentFile } from '../../src/goTest';
 import {
 	getBinPath,
@@ -41,8 +45,7 @@ import {
 	getImportPath,
 	GoVersion,
 	handleDiagnosticErrors,
-	ICheckResult,
-	isVendorSupported
+	ICheckResult
 } from '../../src/util';
 import cp = require('child_process');
 import os = require('os');
@@ -751,117 +754,49 @@ It returns the number of bytes written and any write error encountered.
 
 		const includeImportedPkgs = await listPackages(false);
 		const excludeImportedPkgs = await listPackages(true);
-		assert.equal(includeImportedPkgs.indexOf('fmt') > -1, true);
-		assert.equal(excludeImportedPkgs.indexOf('fmt') > -1, false);
+		assert.equal(includeImportedPkgs.indexOf('fmt') > -1, true, 'want to include imported package');
+		assert.equal(excludeImportedPkgs.indexOf('fmt') > -1, false, 'want to exclude imported package');
 	});
 
 	test('Replace vendor packages with relative path', async function () {
 		if (isModuleMode) {
 			this.skip();
 		} // not working in module mode.
-		const vendorSupport = await isVendorSupported();
 		const filePath = path.join(fixturePath, 'vendoring', 'main.go');
-		const workDir = path.dirname(filePath);
 		const vendorPkgsFullPath = ['test/testfixture/vendoring/vendor/example/vendorpls'];
 		const vendorPkgsRelativePath = ['example/vendorpls'];
 
-		const gopkgsPromise = getAllPackages(workDir).then((pkgMap) => {
-			const pkgs = Array.from(pkgMap.keys()).filter((p) => {
-				const pkg = pkgMap.get(p);
-				return pkg && pkg.name !== 'main';
+		vscode.workspace.openTextDocument(vscode.Uri.file(filePath)).then(async (document) => {
+			await vscode.window.showTextDocument(document);
+			const pkgs = await listPackages();
+			vendorPkgsRelativePath.forEach((pkg) => {
+				assert.equal(pkgs.indexOf(pkg) > -1, true, `Relative path for vendor package ${pkg} not found`);
 			});
-			if (vendorSupport) {
-				vendorPkgsFullPath.forEach((pkg) => {
-					assert.equal(pkgs.indexOf(pkg) > -1, true, `Package not found by goPkgs: ${pkg}`);
-				});
-				vendorPkgsRelativePath.forEach((pkg) => {
-					assert.equal(
-						pkgs.indexOf(pkg),
-						-1,
-						`Relative path to vendor package ${pkg} should not be returned by gopkgs command`
-					);
-				});
-			}
+			vendorPkgsFullPath.forEach((pkg) => {
+				assert.equal(
+					pkgs.indexOf(pkg),
+					-1,
+					`Full path for vendor package ${pkg} should be shown by listPackages method`
+				);
+			});
 			return pkgs;
 		});
-
-		const listPkgPromise: Thenable<string[]> = vscode.workspace
-			.openTextDocument(vscode.Uri.file(filePath))
-			.then(async (document) => {
-				await vscode.window.showTextDocument(document);
-				const pkgs = await listPackages();
-				if (vendorSupport) {
-					vendorPkgsRelativePath.forEach((pkg) => {
-						assert.equal(pkgs.indexOf(pkg) > -1, true, `Relative path for vendor package ${pkg} not found`);
-					});
-					vendorPkgsFullPath.forEach((pkg) => {
-						assert.equal(
-							pkgs.indexOf(pkg),
-							-1,
-							`Full path for vendor package ${pkg} should be shown by listPackages method`
-						);
-					});
-				}
-				return pkgs;
-			});
-
-		const values = await Promise.all<string[]>([gopkgsPromise, listPkgPromise]);
-		if (!vendorSupport) {
-			const originalPkgs = values[0].sort();
-			const updatedPkgs = values[1].sort();
-			assert.equal(originalPkgs.length, updatedPkgs.length);
-			for (let index = 0; index < originalPkgs.length; index++) {
-				assert.equal(updatedPkgs[index], originalPkgs[index]);
-			}
-		}
 	});
 
 	test('Vendor pkgs from other projects should not be allowed to import', async function () {
 		if (isModuleMode) {
 			this.skip();
 		} // not working in module mode.
-		const vendorSupport = await isVendorSupported();
 		const filePath = path.join(fixturePath, 'baseTest', 'test.go');
 		const vendorPkgs = ['test/testfixture/vendoring/vendor/example/vendorpls'];
 
-		const gopkgsPromise = new Promise<void>((resolve, reject) => {
-			const cmd = cp.spawn(getBinPath('gopkgs'), ['-format', '{{.ImportPath}}'], {
-				env: process.env
-			});
-			const chunks: any[] = [];
-			cmd.stdout.on('data', (d) => chunks.push(d));
-			cmd.on('close', () => {
-				const pkgs = chunks
-					.join('')
-					.split('\n')
-					.filter((pkg) => pkg)
-					.sort();
-				if (vendorSupport) {
-					vendorPkgs.forEach((pkg) => {
-						assert.equal(pkgs.indexOf(pkg) > -1, true, `Package not found by goPkgs: ${pkg}`);
-					});
-				}
-				return resolve();
+		vscode.workspace.openTextDocument(vscode.Uri.file(filePath)).then(async (document) => {
+			await vscode.window.showTextDocument(document);
+			const pkgs = await listPackages();
+			vendorPkgs.forEach((pkg) => {
+				assert.equal(pkgs.indexOf(pkg), -1, `Vendor package ${pkg} should not be shown by listPackages method`);
 			});
 		});
-
-		const listPkgPromise: Thenable<void> = vscode.workspace
-			.openTextDocument(vscode.Uri.file(filePath))
-			.then(async (document) => {
-				await vscode.window.showTextDocument(document);
-				const pkgs = await listPackages();
-				if (vendorSupport) {
-					vendorPkgs.forEach((pkg) => {
-						assert.equal(
-							pkgs.indexOf(pkg),
-							-1,
-							`Vendor package ${pkg} should not be shown by listPackages method`
-						);
-					});
-				}
-			});
-
-		return Promise.all<void>([gopkgsPromise, listPkgPromise]);
 	});
 
 	test('Workspace Symbols', () => {

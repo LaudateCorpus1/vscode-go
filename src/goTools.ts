@@ -11,8 +11,8 @@ import moment = require('moment');
 import path = require('path');
 import semver = require('semver');
 import util = require('util');
-import { getFormatTool, usingCustomFormatTool } from './goFormat';
-import { goLiveErrorsEnabled } from './goLiveErrors';
+import { getFormatTool, usingCustomFormatTool } from './language/legacy/goFormat';
+import { goLiveErrorsEnabled } from './language/legacy/goLiveErrors';
 import { allToolsInformation } from './goToolsInformation';
 import { getBinPath, GoVersion } from './util';
 
@@ -139,7 +139,6 @@ export function getConfiguredTools(
 	// Start with default tools that should always be installed.
 	for (const name of [
 		'gocode',
-		'gopkgs',
 		'go-outline',
 		'go-symbols',
 		'guru',
